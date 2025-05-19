@@ -27,7 +27,6 @@ namespace AuthService.Controllers
             _configuration = configuration;
         }
 
-
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest model)
         {
@@ -45,12 +44,12 @@ namespace AuthService.Controllers
             var roles = await _userManager.GetRolesAsync(user);
 
             var claims = new List<Claim>
-                {
-                    new Claim("id", user.Id),
-                    new Claim(ClaimTypes.Email, user.Email!),
-                    new Claim("fullName", user.FullName ?? ""),
-                    new Claim("schoolId", user.SchoolId.ToString())
-                };
+            {
+                new Claim("id", user.Id),
+                new Claim(ClaimTypes.Email, user.Email!),
+                new Claim("fullName", user.FullName ?? ""),
+                new Claim("schoolId", user.SchoolId.ToString())
+            };
 
             claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
 
@@ -82,7 +81,6 @@ namespace AuthService.Controllers
             if (user == null)
                 return NotFound();
 
-            // Retrieve roles assigned to the user.
             var roles = await _userManager.GetRolesAsync(user);
 
             return Ok(new
@@ -94,7 +92,31 @@ namespace AuthService.Controllers
                 email = user.Email,
                 birthday = user.Birthday,
                 address = user.Address,
-                schoolId = user.SchoolId
+                schoolId = user.SchoolId,
+                isActive = user.IsActive 
+            });
+        }
+
+        [Authorize(Roles = "Admin,SuperAdmin")]
+        [HttpGet("{userId}")]
+        public async Task<IActionResult> GetUserById(string userId)
+        {
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null)
+                return NotFound(new { error = "User not found" });
+
+            var roles = await _userManager.GetRolesAsync(user);
+            return Ok(new
+            {
+                id = user.Id,
+                fullName = user.FullName,
+                roles,
+                phoneNumber = user.PhoneNumber,
+                email = user.Email,
+                birthday = user.Birthday,
+                address = user.Address,
+                schoolId = user.SchoolId,
+                isActive = user.IsActive
             });
         }
 
@@ -104,8 +126,6 @@ namespace AuthService.Controllers
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
-
-            // Retrieve user id from the token claims.
             var userId = User.FindFirst("id")?.Value;
             if (userId == null)
                 return Unauthorized();
@@ -114,18 +134,32 @@ namespace AuthService.Controllers
             if (user == null)
                 return NotFound();
 
-            // Update the user's properties.
             user.FullName = model.FullName;
             user.Birthday = model.Birthday;
             user.PhoneNumber = model.PhoneNumber;
-            user.Address = model.Address; 
+            user.Address = model.Address;
 
-            var result = await _userManager.UpdateAsync(user);
-            if (!result.Succeeded)
+            var updateResult = await _userManager.UpdateAsync(user);
+            if (!updateResult.Succeeded)
+                return BadRequest(updateResult.Errors);
+
+            if (model.Roles != null)
             {
-                return BadRequest(result.Errors);
+                var currentRoles = await _userManager.GetRolesAsync(user);
+                if (currentRoles.Any())
+                {
+                    var removeResult = await _userManager.RemoveFromRolesAsync(user, currentRoles);
+                    if (!removeResult.Succeeded)
+                        return BadRequest(new { error = "Failed to remove old roles", details = removeResult.Errors });
+                }
+                if (model.Roles.Any())
+                {
+                    var addResult = await _userManager.AddToRolesAsync(user, model.Roles);
+                    if (!addResult.Succeeded)
+                        return BadRequest(new { error = "Failed to add new roles", details = addResult.Errors });
+                }
             }
-
+            var finalRoles = await _userManager.GetRolesAsync(user);
             return Ok(new
             {
                 message = "Profile updated successfully.",
@@ -133,13 +167,193 @@ namespace AuthService.Controllers
                 {
                     user.Id,
                     user.FullName,
+                    roles = finalRoles,
                     user.Email,
                     user.Birthday,
                     user.PhoneNumber,
                     user.Address,
-                    user.SchoolId
+                    user.SchoolId,
+                    user.IsActive
                 }
             });
         }
+
+
+        [Authorize(Roles = "Admin,SuperAdmin")]
+        [HttpPut("{userId}")]
+        public async Task<IActionResult> UpdateUserById(string userId, [FromBody] UpdateProfileRequest model)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null)
+                return NotFound(new { error = "User not found" });
+
+            user.FullName = model.FullName;
+            user.Birthday = model.Birthday;
+            user.PhoneNumber = model.PhoneNumber;
+            user.Address = model.Address;
+
+            var updateResult = await _userManager.UpdateAsync(user);
+            if (!updateResult.Succeeded)
+                return BadRequest(updateResult.Errors);
+
+            if (model.Roles != null)
+            {
+                var currentRoles = await _userManager.GetRolesAsync(user);
+                if (currentRoles.Any())
+                {
+                    var removeResult = await _userManager.RemoveFromRolesAsync(user, currentRoles);
+                    if (!removeResult.Succeeded)
+                        return BadRequest(new { error = "Failed to remove old roles", details = removeResult.Errors });
+                }
+
+                if (model.Roles.Any())
+                {
+                    var addResult = await _userManager.AddToRolesAsync(user, model.Roles);
+                    if (!addResult.Succeeded)
+                        return BadRequest(new { error = "Failed to add new roles", details = addResult.Errors });
+                }
+            }
+
+            var finalRoles = await _userManager.GetRolesAsync(user);
+
+            return Ok(new
+            {
+                message = "User updated successfully.",
+                user = new
+                {
+                    user.Id,
+                    user.FullName,
+                    roles = finalRoles,
+                    user.PhoneNumber,
+                    user.Email,
+                    user.Birthday,
+                    user.Address,
+                    user.SchoolId,
+                    user.IsActive
+                }
+            });
+        }
+
+
+        #region Inactivation Endpoints (Soft Delete)
+
+        // Self-Inactivate: The current user sets IsActive = false.
+        [Authorize]
+        [HttpDelete("inactivate")]
+        public async Task<IActionResult> InactivateAccount()
+        {
+            var userId = User.FindFirst("id")?.Value;
+            if (userId == null)
+                return Unauthorized();
+
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null)
+                return NotFound(new { error = "User not found" });
+
+            user.IsActive = false;
+            var result = await _userManager.UpdateAsync(user);
+            if (!result.Succeeded)
+                return BadRequest(new { error = "Failed to inactivate user", details = result.Errors });
+
+            return Ok(new { message = "User account inactivated successfully" });
+        }
+
+        [Authorize]
+        [HttpPost("reactivate")]
+        public async Task<IActionResult> ReactivateAccount()
+        {
+            var userId = User.FindFirst("id")?.Value;
+            if (userId == null)
+                return Unauthorized();
+
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null)
+                return NotFound(new { error = "User not found" });
+
+            user.IsActive = true; // Mark user as active again.
+            var result = await _userManager.UpdateAsync(user);
+            if (!result.Succeeded)
+                return BadRequest(new { error = "Failed to reactivate user", details = result.Errors });
+
+            return Ok(new { message = "User account reactivated successfully" });
+        }
+
+        // Admin Inactivate: Admin/ SuperAdmin can inactivate any user.
+        [Authorize(Roles = "Admin,SuperAdmin")]
+        [HttpDelete("inactivate/{userId}")]
+        public async Task<IActionResult> InactivateUserByAdmin(string userId)
+        {
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null)
+                return NotFound(new { error = "User not found" });
+
+            user.IsActive = false;
+            var result = await _userManager.UpdateAsync(user);
+            if (!result.Succeeded)
+                return BadRequest(new { error = "Failed to inactivate user", details = result.Errors });
+
+            return Ok(new { message = "User account inactivated successfully" });
+        }
+
+        [Authorize(Roles = "Admin,SuperAdmin")]
+        [HttpPost("reactivate/{userId}")]
+        public async Task<IActionResult> ReactivateUserByAdmin(string userId)
+        {
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null)
+                return NotFound(new { error = "User not found" });
+
+            user.IsActive = true;
+            var result = await _userManager.UpdateAsync(user);
+            if (!result.Succeeded)
+                return BadRequest(new { error = "Failed to reactivate user", details = result.Errors });
+
+            return Ok(new { message = "User account reactivated successfully" });
+        }
+
+
+        #endregion
+
+        #region Full Deletion Endpoints (Permanent Delete)
+
+        // Self-Delete: The current user completely removes their account.
+        [Authorize]
+        [HttpDelete("delete")]
+        public async Task<IActionResult> FullDeleteAccount()
+        {
+            var userId = User.FindFirst("id")?.Value;
+            if (userId == null)
+                return Unauthorized();
+
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null)
+                return NotFound(new { error = "User not found" });
+
+            var result = await _userManager.DeleteAsync(user);
+            if (!result.Succeeded)
+                return BadRequest(new { error = "Failed to delete user", details = result.Errors });
+
+            return Ok(new { message = "User account deleted successfully" });
+        }
+
+        // Admin Delete: Admin/ SuperAdmin can fully delete any user.
+        [Authorize(Roles = "Admin,SuperAdmin")]
+        [HttpDelete("delete/{userId}")]
+        public async Task<IActionResult> FullDeleteUserByAdmin(string userId)
+        {
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null)
+                return NotFound(new { error = "User not found" });
+
+            var result = await _userManager.DeleteAsync(user);
+            if (!result.Succeeded)
+                return BadRequest(new { error = "Failed to delete user", details = result.Errors });
+
+            return Ok(new { message = "User account deleted successfully" });
+        }
+
+        #endregion
     }
 }

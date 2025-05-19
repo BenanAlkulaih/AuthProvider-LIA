@@ -8,5 +8,6 @@ namespace AuthProvider.Models
         public DateTime Birthday { get; set; }
         public int SchoolId { get; set; }
         public string? Address { get; set; }
+        public bool IsActive { get; set; }
     }
 }

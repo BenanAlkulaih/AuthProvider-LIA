@@ -9,6 +9,7 @@
         public DateTime Birthday { get; set; }
         public string PhoneNumber { get; set; } = null!;
         public int SchoolId { get; set; }
+        public bool IsActive { get; set; } 
         public string[] Roles { get; set; } = null!;
     }
 }

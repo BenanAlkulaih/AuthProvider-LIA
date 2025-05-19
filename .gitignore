@@ -16,6 +16,15 @@
 # Mono auto generated files
 mono_crash.*
 
+# Ignore all appsettings files
+appsettings*.json
+
+# OR only ignore specific ones like development settings
+appsettings.Development.json
+
+# Optionally ignore secrets or local overrides
+appsettings.Local.json
+
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/

@@ -2,7 +2,9 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace AuthProvider.Data
@@ -20,9 +22,21 @@ namespace AuthProvider.Data
 
             try
             {
+                // Delete all existing users.
+                var existingUsers = await userManager.Users.ToListAsync();
+                foreach (var user in existingUsers)
+                {
+                    var deleteResult = await userManager.DeleteAsync(user);
+                    if (!deleteResult.Succeeded)
+                    {
+                        logger.LogError("Failed to delete user {Email}: {Errors}",
+                            user.Email,
+                            string.Join(", ", deleteResult.Errors.Select(e => e.Description)));
+                    }
+                }
+
                 // Define the roles your app uses.
                 var roles = new[] { "SuperAdmin", "Admin", "Teacher", "Student" };
-
                 foreach (var role in roles)
                 {
                     if (!await roleManager.RoleExistsAsync(role))
@@ -30,7 +44,9 @@ namespace AuthProvider.Data
                         var roleResult = await roleManager.CreateAsync(new IdentityRole(role));
                         if (!roleResult.Succeeded)
                         {
-                            logger.LogError("Error creating role {Role}: {Errors}", role, string.Join(", ", roleResult.Errors));
+                            logger.LogError("Error creating role {Role}: {Errors}",
+                                role,
+                                string.Join(", ", roleResult.Errors.Select(e => e.Description)));
                         }
                         else
                         {
@@ -39,6 +55,7 @@ namespace AuthProvider.Data
                     }
                 }
 
+                // Define new users (they will be reinitialized as active).
                 var users = new[]
                 {
                     new
@@ -85,7 +102,7 @@ namespace AuthProvider.Data
 
                 foreach (var u in users)
                 {
-                    // Check if the user already exists.
+                    // Check if the user already exists (should be none after deletion, but for safety).
                     var user = await userManager.FindByEmailAsync(u.Email);
                     if (user == null)
                     {
@@ -96,7 +113,8 @@ namespace AuthProvider.Data
                             FullName = u.FullName,
                             PhoneNumber = u.PhoneNumber,
                             Birthday = u.Birthday,
-                            SchoolId = u.SchoolId
+                            SchoolId = u.SchoolId,
+                            IsActive = true 
                         };
 
                         var result = await userManager.CreateAsync(user, u.Password);
@@ -107,19 +125,22 @@ namespace AuthProvider.Data
                             {
                                 foreach (var error in roleResult.Errors)
                                 {
-                                    logger.LogError("Error assigning role(s) to {Email}: Code={Code}, Description={Description}", u.Email, error.Code, error.Description);
+                                    logger.LogError("Error assigning role(s) to {Email}: Code={Code}, Description={Description}",
+                                        u.Email, error.Code, error.Description);
                                 }
                             }
                             else
                             {
-                                logger.LogInformation("Roles {Roles} successfully assigned to {Email}", string.Join(", ", u.Roles), u.Email);
+                                logger.LogInformation("Roles {Roles} successfully assigned to {Email}",
+                                    string.Join(", ", u.Roles), u.Email);
                             }
                         }
                         else
                         {
                             foreach (var error in result.Errors)
                             {
-                                logger.LogError("Error creating user {Email}: Code={Code}, Description={Description}", u.Email, error.Code, error.Description);
+                                logger.LogError("Error creating user {Email}: Code={Code}, Description={Description}",
+                                    u.Email, error.Code, error.Description);
                             }
                         }
                     }

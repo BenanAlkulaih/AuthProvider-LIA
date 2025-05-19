@@ -21,7 +21,7 @@ namespace AuthProvider.Controllers
 
         /// Gets all users for a given school.
         [HttpGet("bySchool/{schoolId}")]
-        [Authorize(Roles = "SuperAdmin,Admin,Teacher")]
+        
         public async Task<IActionResult> GetUsersBySchool(int schoolId)
         {
             // Query users based on schoolId
@@ -30,7 +30,7 @@ namespace AuthProvider.Controllers
                             .ToListAsync();
 
             // Create a DTO list including the user's roles
-            var userDtos = new List<object>(); // Could define a proper DTO for more structure
+            var userDtos = new List<object>();
             foreach (var user in users)
             {
                 var roles = await _userManager.GetRolesAsync(user);
@@ -42,6 +42,7 @@ namespace AuthProvider.Controllers
                     user.Birthday,
                     user.PhoneNumber,
                     user.SchoolId,
+                    user.IsActive,
                     Roles = roles
                 });
             }
@@ -62,7 +63,8 @@ namespace AuthProvider.Controllers
                 FullName = model.FullName,
                 Birthday = model.Birthday,
                 PhoneNumber = model.PhoneNumber,
-                SchoolId = 0  // SuperAdmin accounts are not tied to a specific school.
+                SchoolId = 0,  // SuperAdmin accounts are not tied to a specific school.
+                IsActive = true
             };
 
             var result = await _userManager.CreateAsync(user, model.Password);
@@ -90,7 +92,8 @@ namespace AuthProvider.Controllers
                 FullName = model.FullName,
                 Birthday = model.Birthday,
                 PhoneNumber = model.PhoneNumber,
-                SchoolId = model.SchoolId
+                SchoolId = model.SchoolId,
+                IsActive = true
             };
 
             var result = await _userManager.CreateAsync(user, model.Password);
@@ -131,7 +134,8 @@ namespace AuthProvider.Controllers
                 FullName = model.FullName,
                 Birthday = model.Birthday,
                 PhoneNumber = model.PhoneNumber,
-                SchoolId = model.SchoolId
+                SchoolId = model.SchoolId,
+                IsActive = true
             };
 
             var result = await _userManager.CreateAsync(user, model.Password);
@@ -172,7 +176,8 @@ namespace AuthProvider.Controllers
                 FullName = model.FullName,
                 Birthday = model.Birthday,
                 PhoneNumber = model.PhoneNumber,
-                SchoolId = model.SchoolId
+                SchoolId = model.SchoolId,
+                IsActive = true
             };
 
             var result = await _userManager.CreateAsync(user, model.Password);
